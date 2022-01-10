@@ -1,3 +1,10 @@
+#################################################
+# Part of the first prototype designed for the hometrainer to be used by deaf, blind (or both) people.
+# This program allows the user to play .ogg audio files from the Raspberry Pi. This program uses a user interface through serial monitor.
+#
+# Version 0.3 10/01/2022 - Expanded select_new_song and added suffix 
+# Authors: Onurcan Cekem & Bob Rip
+#################################################
 import pygame, sys, time
 from pygame.locals import *
 import os
@@ -9,20 +16,35 @@ def show_all_music():
     for file in glob.glob("*.ogg"): # select all files that end with .ogg
         print(file)
 
-# shows all music in the music folder found on Desktop.
-def select_new_song(selectedsong): 
-    pygame.mixer.music.load(f'/home/pi/Desktop/Music/{selectedsong}')
-    pygame.mixer.music.play()
+#function to select new song
+def select_new_song(selectedsong):
+    #if programmer is lazy
+    index = selectedsong.find(".ogg") #find .ogg in file
+    if (index == -1): #if string is not found, return -1
+        pygame.mixer.music.load(f"/home/pi/Desktop/Music/{selectedsong}.ogg")
+    
+    #else input is normal, string is found
+    else:
+        pygame.mixer.music.load(f"/home/pi/Desktop/Music/{selectedsong}")
+    
+    pygame.mixer.music.play() # play audio
 
 #print all found music files to pick from
-list = os.listdir("/home/pi/Desktop/Music/")
-print("Here is a list of all found music files: ")
-print(list)
-print("\n")
+#list = os.listdir("/home/pi/Desktop/Music/")
+#print("Here is a list of all found music files: ")
+#print(list)
+#print("\n")
 
 #print only .ogg files
 list = glob.glob("/home/pi/Desktop/Music/*.ogg")
 print("Here is a list of all found music files with .ogg: ")
+print(list)
+print("\n")
+
+#print only suffix files
+suffix = "background" 
+list = glob.glob(f"/home/pi/Desktop/Music/*{suffix}.ogg")
+print("Here is a list of all found music files with background.ogg: ")
 print(list)
 print("\n")
 
