@@ -17,8 +17,68 @@ import pygame, sys, time
 from pygame.locals import *
 import os
 import glob
-from MCP3008 import MCP3008
 import RPi.GPIO as GPIO
+from MCP3008 import MCP3008
+adc = MCP3008()
+
+
+
+#=========================================================================
+#                  VARIABLES (INITIALIZE/GPIO PINS)
+#=========================================================================
+# audio
+pygame.init() # initialize pygame
+pygame.mixer.set_num_channels(8) # Allow 8 audio channels to be loaded in
+
+channel1 = pygame.mixer.Channel(0) # initialize channel 1
+channel2 = pygame.mixer.Channel(1) # initialize channel 2
+
+# GPIO Pins
+GPIO.setmode(GPIO.BCM)
+magnetsensor = 12 # max current 25 mA, use a resistor of 200 Ohm --> 220 Ohm (E-reeks)
+feedback_button = 5
+skip_button = 6
+PSMI = 13
+ZERO_CROSSING = 26
+Wind_slider_pin = 0
+Audio_slider_pin = 1
+
+# Analoge slider GPIO 8,9,10,11 door MCP3008
+
+# previous states from sensors template
+prev_feedback_button = 1
+prev_skip_button = 1
+wind_strength = 1
+volume = 1
+
+# analog slider
+#adc = MCP3008()
+#value = adc.read( channel = 0 ) # You can of course adapt the channel to be read out
+#print("Applied voltage adc1: %.2f" % (value / 1023.0 * 3.3))
+
+#PSM Ventilator
+GPIO.setup(PSM1, GPIO.OUT)
+GPIO.setup(ZERO_CROSSING, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #pull down
+# HAL sensor
+GPIO.setup(magnetsensor, GPIO.IN) # Sensor setup
+
+#=========================================================================
+#                             VARIABLES
+#=========================================================================
+# audio variables
+pygame.mixer.music.set_volume(0.1) # max volume before sound becomes cracked
+channel1.set_volume(0.2)
+channel2.set_volume(0.2)
+suffix = "_background" # suffix, used to find audio files. Example: Jungle_background.ogg
+suffix_music_list = DivideAllMusic(suffix) # music list with all audio files of given suffix
+
+# Ventilator
+ventilator_snelheid = 0
+PSM_counter = 0
+
+#rotation speed
+rotation_time = 0 
+rotation_speed = 0
 
 
 #=========================================================================
@@ -98,15 +158,7 @@ def play_sound(sound, channel=1):
     else:
         print("Snoop Doggy Dogg and Dr.Dre is at the door. Channel not accepted. Programmer skill issue.")
 
-# function to read the HAL magneticsensor
-# note, untested function
-def read_magnetsensor():
-    if not(GPIO.input(HALsensor)): # if sensor sees a magnet
-        if (currenttime-programtime) >= 0.03: # if the magnet has moved and we see another magnet 
-            programtime = currenttime # remember that we already counted
-            print("WEE-WOO") # debug
-        else: # else the magnet hasn't moved
-            programtime = currenttime
+
 
 # function for the first button to play feedback on how long the user has been cycling
 # play order: je hebt | x | minuten gefietst
@@ -156,9 +208,38 @@ def signal_handler(sig, frame):
     GPIO.cleanup()
     sys.exit(0)
     
-# function to send a PSM signal to the ventilator
+
+
+
+# function to read all button states. This is used to keep the main code clean.
+def button_routine():
+    prev_skip_button = skip_button
+    prev_feedback_button = feedback_button
+
+
+
+#=========================================================================
+#                  INTERRUPTS
+#=========================================================================
+
+# Magneet sensor
+GPIO.add_event_detect(magnetsensor, GPIO.falling, callback= read_magnetsensor, bouncetime=10) # zero crossing interrupt
+
+# interrupt function to read the HAL magneticsensor
+# note, untested function
+def read_magnetsensor():
+    currenttime = time.perf_counter() #runntime of program
+    if (currenttime-programtime) >= 0.03: # if the magnet has moved and rotated
+        rotation_time = currenttime-programtime
+        print("WEE-WOO") # debug
+    programtime = currenttime # remember that we already counted
+
+# Ventilator
+GPIO.add_event_detect(ZERO_CROSSING, GPIO.RISING, callback=PSM_CHANNEL1, bouncetime=10) # zero crossing interrupt
+
+# interrupt function to send a PSM signal to the ventilator
 # action what to do when the sinus crosses zero
-def PSM_CHANNEL1(channel):
+def PSM_CHANNEL1():
     global ventilator_snelheid
     global PSM_counter
     
@@ -172,70 +253,6 @@ def PSM_CHANNEL1(channel):
     
     if PSM_counter >= 100 : # reset counter
         PSM_counter = 0
-
-# when an event is detected, run this function: run the PSM_Channel function
-def button_released_callback(channel):
-    PSM_CHANNEL1(channel)
-
-# function to read all button states. This is used to keep the main code clean.
-def button_routine():
-    prev_skip_button = skip_button
-    prev_feedback_button = feedback_button
-    prev_magnetsensor = magnetsensor*0.8 # volume starts to become cracked above 0.8
-
-#=========================================================================
-#                  VARIABLES (INITIALIZE/GPIO PINS)
-#=========================================================================
-# audio
-pygame.init() # initialize pygame
-pygame.mixer.set_num_channels(8) # Allow 8 audio channels to be loaded in
-
-channel1 = pygame.mixer.Channel(0) # initialize channel 1
-channel2 = pygame.mixer.Channel(1) # initialize channel 2
-
-# GPIO Pins
-GPIO.setmode(GPIO.BCM)
-magnetsensor = 12 # max current 25 mA, use a resistor of 200 Ohm --> 220 Ohm (E-reeks)
-feedback_button = 5
-skip_button = 6
-PSMI = 13
-ZERO_CROSSING = 26
-# Analoge slider GPIO 8,9,10,11 door MCP3008
-
-# previous states from sensors template
-prev_magnetsensor = 1
-prev_feedback_button = 1
-prev_skip_button = 1
-wind_strength = 1
-volume = 1
-
-# analog slider
-#adc = MCP3008()
-#value = adc.read( channel = 0 ) # You can of course adapt the channel to be read out
-#print("Applied voltage adc1: %.2f" % (value / 1023.0 * 3.3))
-
-# Ventilator
-GPIO.setup(ZERO_CROSSING, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #pull down
-GPIO.setup(PSM1, GPIO.OUT)
-GPIO.add_event_detect(ZERO_CROSSING, GPIO.RISING, callback=button_released_callback, bouncetime=10) # zero crossing interrupt
-
-# HAL sensor
-GPIO.setup(HALsensor, GPIO.IN) # Sensor setup
-
-#=========================================================================
-#                             VARIABLES
-#=========================================================================
-# audio variables
-pygame.mixer.music.set_volume(0.1) # max volume before sound becomes cracked
-channel1.set_volume(0.2)
-channel2.set_volume(0.2)
-suffix = "_background" # suffix, used to find audio files. Example: Jungle_background.ogg
-suffix_music_list = DivideAllMusic(suffix) # music list with all audio files of given suffix
-
-# Ventilator
-ventilator_snelheid = 0
-PSM_counter = 0
-
 
 
 #=========================================================================
@@ -261,38 +278,52 @@ select_new_song(query)
 #=========================================================================
 #                             MAIN (LOOP)
 #=========================================================================
-while True: # infinite loop
+#setup code 
+
+
+#wind checken en goed zetten
+#audio checken en goed zetten
+#start de route
+
+
+# infinite loop
+while True: 
 #    if Killswitch:
 #        print("The absence of evidence is not the evidence of absence")
 #    else:
         
-        # magnet sensor
-        if(magnetsensor != prev_magnetsensor & magnetsensor):
-            prev_magnetsensor = magnetsensor
-            
-        # wind slider
-        if (wind_slider != wind_strength): 
-            wind_strength = wind_slider
-            # do something with dimmer/GPIO? <--------------------------
-            # this function needs to be written
-            #
-            
-        # audio slider 
-        if (audio_slider != volume): #onnodige if
-            pygame.mixer.music.set_volume(wind_slider)
-            volume = audio_slider
+     # rotationspeed
+     rotation_speed = 1/rotation_time # calculate rotations/second
+     print("rotation speed: " + rotation_speed)
+          
+     # feedback button
+     if((feedback_button != prev_feedback_button) & prev_feedback_button): # if pressed and new
+         prev_feedback_button = True #True
+         feedback_button_func()
+     
+     # skip button
+     if((skip_button != prev_skip_button) & prev_skip_button): # if pressed and new 
+         prev_skip_button = True # remember that the button has been pressed
+         skip_button_func(suffix_music_list)
     
-        # feedback button
-        if((feedback_button != prev_feedback_button) & prev_feedback_button): # if pressed and new
-            prev_feedback_button = True #True
-            feedback_button_func()
     
-        # skip button
-        if((skip_button != prev_skip_button) & prev_skip_button): # if pressed and new 
-            prev_skip_button = True # remember that the button has been pressed
-            skip_button_func(suffix_music_list)
-        
-        # update buttons, timers, etc.
-        button_routine()
+    # wind slider
+     wind_slider = adc.read( channel = Wind_slider_pin) # read out wind slider
+     if (wind_slider != wind_strength): 
+         wind_strength = wind_slider
+         
+         # do something with dimmer/GPIO? <--------------------------
+         # this function needs to be written
+         #
+         
+     # audio slider 
+     audio_slider = adc.read(channel = Audio_slider_pin) # read out audio slider
+     if (audio_slider != volume):
+         volume = audio_slider
+         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
+    
+     
+     # update buttons, timers, etc.
+     button_routine()
         
 signal.signal(signal.SIGINT, signal_handler) #if program ends clean up GPIOS
