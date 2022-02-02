@@ -17,9 +17,9 @@ import pygame, sys, time
 from pygame.locals import *
 import os
 import glob
+import random
 import RPi.GPIO as GPIO
 from MCP3008 import MCP3008
-adc = MCP3008()
 
 
 
@@ -34,11 +34,12 @@ channel1 = pygame.mixer.Channel(0) # initialize channel 1
 channel2 = pygame.mixer.Channel(1) # initialize channel 2
 
 # GPIO Pins
+GPIO.setwarnings(False) # Disable warnings, because they are annoying
 GPIO.setmode(GPIO.BCM)
 magnetsensor = 12 # max current 25 mA, use a resistor of 200 Ohm --> 220 Ohm (E-reeks)
 feedback_button = 5
 skip_button = 6
-PSMI = 13
+PSM1 = 13
 ZERO_CROSSING = 26
 Wind_slider_pin = 0
 Audio_slider_pin = 1
@@ -70,14 +71,13 @@ pygame.mixer.music.set_volume(0.1) # max volume before sound becomes cracked
 channel1.set_volume(0.2)
 channel2.set_volume(0.2)
 suffix = "_background" # suffix, used to find audio files. Example: Jungle_background.ogg
-suffix_music_list = DivideAllMusic(suffix) # music list with all audio files of given suffix
 
 # Ventilator
 ventilator_snelheid = 0
 PSM_counter = 0
 
 #rotation speed
-rotation_time = 0 
+rotation_time = 1 
 rotation_speed = 0
 
 
@@ -105,10 +105,12 @@ def select_new_song(selectedsong):
     
     pygame.mixer.music.play() # play audio  
 
-# shows all music in the music folder found on Desktop.
+# function to generate and return a music list depending on suffix.
+# Returns all music (.ogg) in the music folder found on Desktop with the given suffix.
 # variables:
 # suffix - If suffix is given, function returns all music in destination with given suffix. Else it returns all music (default = 0)
-def DivideAllMusic(suffix=0): 
+#          suffix has to be a string.
+def generate_music_list(suffix=0): 
     file_counter = 0
     print("Suffix: " + str(suffix)) # debug
     music_list = []
@@ -126,7 +128,7 @@ def DivideAllMusic(suffix=0):
 
 # randomly selects an audio file from given music_list with a random amount of time it plays the file
 # variables:
-# music list - array of music from DivideAllMusic
+# music list - array of music from generate_music_list
 def Randomizer(music_list):
     music_file = music_list[random.randint(0, len(music_list)-1)] # choose random audio file
     pygame.mixer.music.load(f"/home/pi/Desktop/Music/{music_file}") # load music file
@@ -162,11 +164,12 @@ def play_sound(sound, channel=1):
 
 # function for the first button to play feedback on how long the user has been cycling
 # play order: je hebt | x | minuten gefietst
-def feedback_button_func():
+# variables: time_s - time in seconds
+def feedback_button_func(time_s):
     pygame.mixer.music.pause() # pause music
     channel = 2 # select channel, developer mode
     counter = 0
-    time_m = 10 # time in minutes
+    time_m = int(time_s / 60) # time in minutes
     
     # play first sound
     play_sound("je_hebt", channel)
@@ -197,7 +200,7 @@ def feedback_button_func():
 # function for the second button to skip the current route and play the next one
 # randomly selects an audio file from given music_list with a random amount of time it plays the file
 # variables:
-# music list - array of music from DivideAllMusic
+# music list - array of music from generate_new_music
 def skip_button_func(music_list):
     music_file = music_list[random.randint(0, len(music_list)-1)] # choose random audio file
     pygame.mixer.music.load(f"/home/pi/Desktop/Music/{music_file}") # load music file
@@ -208,8 +211,6 @@ def signal_handler(sig, frame):
     GPIO.cleanup()
     sys.exit(0)
     
-
-
 
 # function to read all button states. This is used to keep the main code clean.
 def button_routine():
@@ -222,20 +223,18 @@ def button_routine():
 #                  INTERRUPTS
 #=========================================================================
 
-# Magneet sensor
-GPIO.add_event_detect(magnetsensor, GPIO.falling, callback= read_magnetsensor, bouncetime=10) # zero crossing interrupt
-
 # interrupt function to read the HAL magneticsensor
 # note, untested function
 def read_magnetsensor():
     currenttime = time.perf_counter() #runntime of program
-    if (currenttime-programtime) >= 0.03: # if the magnet has moved and rotated
+    time_ms = int(time.perf_counter_ns() / 1000000)-starttime # time in milliseconds
+    if (time_ms-programtime) >= 30: # if the magnet has moved and rotated within 30 milliseconds
         rotation_time = currenttime-programtime
         print("WEE-WOO") # debug
-    programtime = currenttime # remember that we already counted
+    programtime = time_ms # remember that we already counted
 
-# Ventilator
-GPIO.add_event_detect(ZERO_CROSSING, GPIO.RISING, callback=PSM_CHANNEL1, bouncetime=10) # zero crossing interrupt
+# Magneet sensor
+GPIO.add_event_detect(magnetsensor, GPIO.FALLING, callback= read_magnetsensor, bouncetime=10) # zero crossing interrupt
 
 # interrupt function to send a PSM signal to the ventilator
 # action what to do when the sinus crosses zero
@@ -254,6 +253,8 @@ def PSM_CHANNEL1():
     if PSM_counter >= 100 : # reset counter
         PSM_counter = 0
 
+# Ventilator
+GPIO.add_event_detect(ZERO_CROSSING, GPIO.RISING, callback=PSM_CHANNEL1, bouncetime=10) # zero crossing interrupt
 
 #=========================================================================
 #                             DEBUG CODE
@@ -273,57 +274,59 @@ print(list)
 print("\n")
 
 
-query = input(" ")
-select_new_song(query)
+#wind_slider = MCP3008.read( Wind_slider_pin) # read out wind slider
+#query = input(" ")
+#select_new_song(query)
 #=========================================================================
 #                             MAIN (LOOP)
 #=========================================================================
 #setup code 
 
 
-#wind checken en goed zetten
-#audio checken en goed zetten
-#start de route
-
+# global vars
+suffix_music_list = generate_music_list(suffix) # music list with all audio files of given suffix
+starttime = int(time.perf_counter_ns() / 1000000000) # start time of program
 
 # infinite loop
-while True: 
-#    if Killswitch:
-#        print("The absence of evidence is not the evidence of absence")
-#    else:
+while True:
+    query = input("")
+    currenttime = int(time.perf_counter_ns() / 1000000000)-starttime # time in seconds
+    print(str(currenttime) + " seconds active")
+    feedback_button_func(currenttime)
         
      # rotationspeed
-     rotation_speed = 1/rotation_time # calculate rotations/second
-     print("rotation speed: " + rotation_speed)
+#     rotation_speed = 1/rotation_time # calculate rotations/second
+#     print("rotation speed: " + str(rotation_speed))
           
      # feedback button
-     if((feedback_button != prev_feedback_button) & prev_feedback_button): # if pressed and new
-         prev_feedback_button = True #True
-         feedback_button_func()
+#     if((feedback_button != prev_feedback_button) & prev_feedback_button): # if pressed and new
+#         prev_feedback_button = True #True
+#         feedback_button_func(currenttime)
      
      # skip button
-     if((skip_button != prev_skip_button) & prev_skip_button): # if pressed and new 
-         prev_skip_button = True # remember that the button has been pressed
-         skip_button_func(suffix_music_list)
+#     if((skip_button != prev_skip_button) & prev_skip_button): # if pressed and new 
+#         prev_skip_button = True # remember that the button has been pressed
+#         skip_button_func(suffix_music_list)
     
     
     # wind slider
-     wind_slider = adc.read( channel = Wind_slider_pin) # read out wind slider
-     if (wind_slider != wind_strength): 
-         wind_strength = wind_slider
+     #wind_slider = MCP3008.read( Wind_slider_pin) # read out wind slider
+#     wind
+#     if (wind_slider != wind_strength): 
+#         wind_strength = wind_slider
          
          # do something with dimmer/GPIO? <--------------------------
          # this function needs to be written
          #
          
-     # audio slider 
-     audio_slider = adc.read(channel = Audio_slider_pin) # read out audio slider
-     if (audio_slider != volume):
-         volume = audio_slider
-         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
+     #audio slider 
+#     audio_slider = adc.read(channel = Audio_slider_pin) # read out audio slider
+#     if (audio_slider != volume):
+#         volume = audio_slider
+#         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
     
      
      # update buttons, timers, etc.
-     button_routine()
+#     button_routine()
         
 signal.signal(signal.SIGINT, signal_handler) #if program ends clean up GPIOS
