@@ -216,8 +216,31 @@ def signal_handler(sig, frame):
 def button_routine():
     prev_skip_button = skip_button
     prev_feedback_button = feedback_button
+    
+
+#function that caluclates the PSM sgnal for the wind speed
+#arguments: 
+    #rotation: the rotation speed in rotations per second
+    #slider: slider value from 0 to 1
+#return:
+    #PSM_duty: PSM duty cycle from 0 to 100
+def wind_speed_calculator(rotatie, slider):
+    
+    #calculate rotation speed to PSM signal 
+    PSM_strength = rotatie*100/2 #rotatie snelheid * 100%/ max rotatie snelheid(2 rotaties per sec) 
+    
+    #calculate slider offsetof the PSM signal
+    PSM_duty = slider * PSM_strength
+    return 
 
 
+#function that caluclates value of the slider in a value form 0 to 1
+#arguments: 
+    #sliderVal: slider value from 0 t 1023
+#return:
+    #slider value form 0 to 1 
+def slider_value_calculator(sliderVal):
+    return sliderVal / 1023.0 #slider waarde/ aantal bits * reference voltage
 
 #=========================================================================
 #                  INTERRUPTS
@@ -310,17 +333,13 @@ while True:
     
     
     # wind slider
-     #wind_slider = MCP3008.read( Wind_slider_pin) # read out wind slider
-#     wind
-#     if (wind_slider != wind_strength): 
-#         wind_strength = wind_slider
-         
-         # do something with dimmer/GPIO? <--------------------------
-         # this function needs to be written
-         #
-         
+    wind_slider = slider_value_calculator(MCP3008.read( Wind_slider_pin)) # read out wind slider
+    print("wind_slider: " + str(wind_slider))#debuging
+    ventilator_snelheid = wind_speed_calculator(rotation_speed, wind_slider)#determen the fan speed
+    print("ventilator_snelheid: " + str(ventilator_snelheid)) #debuging
+
      #audio slider 
-#     audio_slider = adc.read(channel = Audio_slider_pin) # read out audio slider
+#     audio_slider = slider_value_calculator(adc.read(channel = Audio_slider_pin)) # read out audio slider
 #     if (audio_slider != volume):
 #         volume = audio_slider
 #         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
