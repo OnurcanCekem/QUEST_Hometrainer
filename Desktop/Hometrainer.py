@@ -47,21 +47,25 @@ Audio_slider_pin = 1
 # Analoge slider GPIO 8,9,10,11 door MCP3008
 
 # previous states from sensors template
-prev_feedback_button = 1
-prev_skip_button = 1
+prev_feedback_button = 0
+prev_skip_button = 0
 wind_strength = 1
 volume = 1
 
 # analog slider
-#adc = MCP3008()
+adc = MCP3008()
 #value = adc.read( channel = 0 ) # You can of course adapt the channel to be read out
 #print("Applied voltage adc1: %.2f" % (value / 1023.0 * 3.3))
+
+# Button
+GPIO.setup(skip_button, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(feedback_button, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 #PSM Ventilator
 GPIO.setup(PSM1, GPIO.OUT)
 GPIO.setup(ZERO_CROSSING, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #pull down
 # HAL sensor
-GPIO.setup(magnetsensor, GPIO.IN) # Sensor setup
+GPIO.setup(magnetsensor, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # Sensor setup
 
 #=========================================================================
 #                             VARIABLES
@@ -77,10 +81,10 @@ ventilator_snelheid = 0
 PSM_counter = 0
 
 #rotation speed
-rotation_time = 1 
-rotation_speed = 0
+rotation_time = 0.01
+rotation_speed = 0.01
 
-
+max_rotation_per_sec = 1.5
 #=========================================================================
 #                             FUNCTIONS
 #=========================================================================
@@ -169,8 +173,8 @@ def feedback_button_func(time_s):
     pygame.mixer.music.pause() # pause music
     channel = 2 # select channel, developer mode
     counter = 0
-    time_m = int(time_s / 60) # time in minutes
-    
+    time_m = int(time_s / 1000) # time in minutes
+    print("Time_m: " +str(time_m))
     # play first sound
     play_sound("je_hebt", channel)
     while True: # Loop until everything has been played
@@ -227,11 +231,16 @@ def button_routine():
 def wind_speed_calculator(rotatie, slider):
     
     #calculate rotation speed to PSM signal 
-    PSM_strength = rotatie*100/2 #rotatie snelheid * 100%/ max rotatie snelheid(2 rotaties per sec) 
+    PSM_strength = rotatie*100/max_rotation_per_sec #rotatie snelheid * 100%/ max rotatie snelheid(2 rotaties per sec) 
     
     #calculate slider offsetof the PSM signal
-    PSM_duty = slider * PSM_strength
-    return 
+    PSM_duty = int(slider * PSM_strength)
+    
+    # if over limit, put at max
+    if(PSM_duty > 100):
+        PSM_duty = 100
+        
+    return PSM_duty
 
 
 #function that caluclates value of the slider in a value form 0 to 1
@@ -246,22 +255,25 @@ def slider_value_calculator(sliderVal):
 #                  INTERRUPTS
 #=========================================================================
 
+programtime = 5
 # interrupt function to read the HAL magneticsensor
 # note, untested function
-def read_magnetsensor():
-    currenttime = time.perf_counter() #runntime of program
-    time_ms = int(time.perf_counter_ns() / 1000000)-starttime # time in milliseconds
-    if (time_ms-programtime) >= 30: # if the magnet has moved and rotated within 30 milliseconds
+def read_magnetsensor(channel):
+    global programtime
+    currenttime = int(time.perf_counter_ns() / 1000000) #runntime of program in ms
+    if ( (currenttime - programtime) >= 30): # if the magnet has moved and rotated within 30 milliseconds
+        global rotation_time
         rotation_time = currenttime-programtime
-        print("WEE-WOO") # debug
-    programtime = time_ms # remember that we already counted
+        print("WEE-WOO: " + str(rotation_time)) # debug
+    programtime = currenttime # remember that we already counted
 
 # Magneet sensor
-GPIO.add_event_detect(magnetsensor, GPIO.FALLING, callback= read_magnetsensor, bouncetime=10) # zero crossing interrupt
+GPIO.add_event_detect(magnetsensor, GPIO.FALLING, callback=read_magnetsensor, bouncetime=10) # zero crossing interrupt
+
 
 # interrupt function to send a PSM signal to the ventilator
 # action what to do when the sinus crosses zero
-def PSM_CHANNEL1():
+def PSM_CHANNEL1(channel):
     global ventilator_snelheid
     global PSM_counter
     
@@ -308,43 +320,55 @@ print("\n")
 
 # global vars
 suffix_music_list = generate_music_list(suffix) # music list with all audio files of given suffix
-starttime = int(time.perf_counter_ns() / 1000000000) # start time of program
+starttime = int(time.perf_counter_ns() / 1000000) # start time of program
 
 # infinite loop
+query = input("")
+select_new_song(query)
 while True:
-    query = input("")
-    currenttime = int(time.perf_counter_ns() / 1000000000)-starttime # time in seconds
-    print(str(currenttime) + " seconds active")
-    feedback_button_func(currenttime)
-        
-     # rotationspeed
-#     rotation_speed = 1/rotation_time # calculate rotations/second
-#     print("rotation speed: " + str(rotation_speed))
+    currenttime = int(time.perf_counter_ns() / 1000000) - starttime
+    
+    #debug purposes, don't need to add back
+    #print(currenttime)
+    #currenttime = int(time.perf_counter_ns() / 1000000000)-starttime # time in seconds
+    #print(str(currenttime) + " seconds active")
+    #feedback_button_func(currenttime)
+    
+    # rotationspeed (working)
+    #print("Rotation time: " + str(rotation_time))
+    #rotation_speed = 1000/rotation_time # calculate rotations/second
+    #print("rotation speed: " + str(rotation_speed))
           
+    # wind slider (working)
+    #wind_slider = slider_value_calculator(adc.read( Wind_slider_pin)) # read out wind slider
+    #print("wind_slider: " + str(wind_slider))#debuging
+    #ventilator_snelheid = wind_speed_calculator(rotation_speed, wind_slider)#determen the fan speed
+    #print("ventilator_snelheid: " + str(ventilator_snelheid)) #debuging
+      
      # feedback button
-#     if((feedback_button != prev_feedback_button) & prev_feedback_button): # if pressed and new
-#         prev_feedback_button = True #True
-#         feedback_button_func(currenttime)
-     
+    #print(GPIO.input(feedback_button))
+    if((GPIO.input(feedback_button) != prev_feedback_button) & 1): # if pressed and new
+         prev_feedback_button = True #True
+         feedback_button_func(currenttime)
+    prev_feedback_button = GPIO.input(feedback_button)
      # skip button
-#     if((skip_button != prev_skip_button) & prev_skip_button): # if pressed and new 
-#         prev_skip_button = True # remember that the button has been pressed
-#         skip_button_func(suffix_music_list)
+    if((GPIO.input(skip_button) != prev_skip_button) & 1): # if pressed and new 
+         print("Hallo daar")
+         prev_skip_button = True # remember that the button has been pressed
+         skip_button_func(suffix_music_list)
+    prev_skip_button = GPIO.input(skip_button)
     
-    
-    # wind slider
-    wind_slider = slider_value_calculator(MCP3008.read( Wind_slider_pin)) # read out wind slider
-    print("wind_slider: " + str(wind_slider))#debuging
-    ventilator_snelheid = wind_speed_calculator(rotation_speed, wind_slider)#determen the fan speed
-    print("ventilator_snelheid: " + str(ventilator_snelheid)) #debuging
-
      #audio slider 
-#     audio_slider = slider_value_calculator(adc.read(channel = Audio_slider_pin)) # read out audio slider
-#     if (audio_slider != volume):
-#         volume = audio_slider
-#         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
+    audio_slider = slider_value_calculator(adc.read(channel = Audio_slider_pin)) # read out audio slider
     
-     
+    print(audio_slider)
+    if (audio_slider != volume):
+         volume = audio_slider
+         pygame.mixer.music.set_volume(volume*0.8) #x0.8 bucause a higher volume produces bad audio performence  
+    
+    # Check route
+    if(pygame.mixer.music.get_busy() == 0): # if route is not busy, play a random route
+        Randomizer(suffix_music_list)
      # update buttons, timers, etc.
 #     button_routine()
         
